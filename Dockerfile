@@ -16,6 +16,46 @@
 # under the License.
 
 FROM openjdk:17.0.2
+
+# 设置环境变量
+ENV MODE="cluster" \
+    PREFER_HOST_MODE="ip"\
+    BASE_DIR="/home/nacos" \
+    CLASSPATH=".:/home/nacos/conf:$CLASSPATH" \
+    CLUSTER_CONF="/home/nacos/conf/cluster.conf" \
+    FUNCTION_MODE="all" \
+    JAVA_HOME="/usr/java/openjdk-17" \
+    NACOS_USER="nacos" \
+    JAVA="/usr/java/openjdk-17/bin/java" \
+    JVM_XMS="1g" \
+    JVM_XMX="1g" \
+    JVM_XMN="512m" \
+    JVM_MS="128m" \
+    JVM_MMS="320m" \
+    NACOS_DEBUG="n" \
+    TOMCAT_ACCESSLOG_ENABLED="false" \
+    TIME_ZONE="Asia/Shanghai"
+
+
+WORKDIR $BASE_DIR
+
 COPY ./distribution/target/nacos-server-3.1.1/nacos /home/nacos
-WORKDIR /home/nacos
-ENTRYPOINT ["sh", "-c", "./bin/startup.sh"]
+
+# 下载并安装 Nacos
+RUN set -x \
+    && rm -rf /home/nacos/bin/* /home/nacos/conf/*.properties /home/nacos/conf/*.example /home/nacos/conf/nacos-mysql.sql \
+    && ln -snf /usr/share/zoneinfo/$TIME_ZONE /etc/localtime && echo $TIME_ZONE > /etc/timezone
+
+ADD docker/docker-startup.sh bin/docker-startup.sh
+ADD docker/application.properties conf/application.properties
+
+# 设置启动日志目录
+RUN mkdir -p logs \
+	&& touch logs/start.out \
+	&& ln -sf /dev/stdout logs/start.out \
+	&& ln -sf /dev/stderr logs/start.out \
+    && chmod +x bin/docker-startup.sh
+
+EXPOSE 8848
+EXPOSE 9848 8080
+ENTRYPOINT ["sh","bin/docker-startup.sh"]
