@@ -1,5 +1,5 @@
 /*
- * Copyright 1999-2022 Alibaba Group Holding Ltd.
+ * Copyright 1999-2024 Alibaba Group Holding Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,20 +14,20 @@
  * limitations under the License.
  */
 
-package com.alibaba.nacos.plugin.datasource.constants;
+package com.alibaba.nacos.plugin.datasource.impl.kingbase;
+
+import com.alibaba.nacos.plugin.datasource.constants.DataSourceConstant;
+import com.alibaba.nacos.plugin.datasource.mapper.ConfigMigrateMapper;
 
 /**
- * The data source name.
+ * The type Config migrate mapper by mysql.
  *
- * @author hyx
- **/
-
-public class DataSourceConstant {
-    public static final String MYSQL = "mysql";
-
-    public static final String DERBY = "derby";
-
-    public static final String DM = "dm";
-
-    public static final String KINGBASE = "kingbase";
+ * @author Sunrisea
+ */
+public class ConfigMigrateMapperByKingbase extends AbstractMapperByKingbase implements ConfigMigrateMapper {
+    
+    @Override
+    public String getDataSource() {
+        return DataSourceConstant.KINGBASE;
+    }
 }
