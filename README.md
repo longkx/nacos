@@ -1,256 +1,376 @@
+# Nacos 国产化数据库适配说明文档
 
-<img src="doc/Nacos_Logo.png" width="50%" syt height="50%" />
+## 概述
 
-# Nacos: Dynamic  *Na*ming and *Co*nfiguration *S*ervice
+本适配工作于2026年1月29日由 longkaixiang 完成，主要实现了 Nacos 对国产数据库 **达梦(DM)** 和 **人大金仓(Kingbase)** 的支持。适配基于 Nacos 3.1.1 版本，遵循了原有的插件化数据源架构。
 
-[![Gitter](https://badges.gitter.im/alibaba/nacos.svg)](https://gitter.im/alibaba/nacos?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)   [![License](https://img.shields.io/badge/license-Apache%202-4EB1BA.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
-[![Gitter](https://travis-ci.org/alibaba/nacos.svg?branch=master)](https://travis-ci.org/alibaba/nacos)
-[![](https://img.shields.io/badge/Nacos-Check%20Your%20Contribution-orange)](https://opensource.alibaba.com/contribution_leaderboard/details?projectValue=nacos)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/alibaba/nacos)
+### 适配的主要改动
 
--------
+#### 1. 依赖添加
+在 `console/pom.xml` 和 `naming/pom.xml` 中添加了两种国产数据库的 JDBC 驱动依赖：
 
-## What does it do
+```xml
+<!-- 达梦数据库驱动 -->
+<dependency>
+    <groupId>com.dameng</groupId>
+    <artifactId>DmJdbcDriver18</artifactId>
+    <version>8.1.3.140</version>
+</dependency>
 
-Nacos (official site: [nacos.io](https://nacos.io)) is an easy-to-use platform designed for dynamic service discovery and configuration and service management. It helps you to build cloud native applications and microservices platform easily.
-
-Service is a first-class citizen in Nacos. Nacos supports almost all type of services，for example，[Dubbo/gRPC service](https://nacos.io/docs/latest/ecology/use-nacos-with-dubbo/), [Spring Cloud RESTFul service](https://nacos.io/docs/latest/ecology/use-nacos-with-spring-cloud/) or [Kubernetes service](https://nacos.io/docs/latest/quickstart/quick-start-kubernetes/).
-
-Nacos provides four major functions.
-
-* **Service Discovery and Service Health Check** 
-    
-    Nacos makes it simple for services to register themselves and to discover other services via a DNS or HTTP interface. Nacos also provides real-time health checks of services to prevent sending requests to unhealthy hosts or service instances.
-
-* **Dynamic Configuration Management**
-  
-    Dynamic Configuration Service allows you to manage configurations of all services in a centralized and dynamic manner across all environments. Nacos eliminates the need to redeploy applications and services when configurations are updated, which makes configuration changes more efficient and agile.
-
-* **Dynamic DNS Service**
-    
-    Nacos supports weighted routing, making it easier for you to implement mid-tier load balancing, flexible routing policies, flow control, and simple DNS resolution services in the production environment within your data center. It helps you to implement DNS-based service discovery easily and prevent applications from coupling to vendor-specific service discovery APIs.
-
-* **Service and MetaData Management**
-	
-    Nacos provides an easy-to-use service dashboard to help you manage your services metadata, configuration, kubernetes DNS, service health and metrics statistics.
- 
-
-## Quick Start
-It is super easy to get started with your first project.
-
-### Deploying Nacos on cloud
-
-You can deploy Nacos on cloud, which is the easiest and most convenient way to start Nacos. 
-
-Use the following [Nacos deployment guide](https://cn.aliyun.com/product/aliware/mse?spm=nacos-website.topbar.0.0.0) to see more information and deploy a stable and out-of-the-box Nacos server.
-
-
-### Start by the provided startup package
-
-#### Step 1: Download the binary package 
-
-You can download the package from the [latest stable release](https://github.com/alibaba/nacos/releases).  
-
-Take release `nacos-server-1.0.0.zip` for example:
-```sh
-unzip nacos-server-1.0.0.zip
-cd nacos/bin 
-``` 
-
-#### Step 2: Start Server
-
-On the **Linux/Unix/Mac** platform, run the following command to start server with standalone mode: 
-```sh
-sh startup.sh -m standalone
+<!-- 人大金仓数据库驱动 -->
+<dependency>
+    <groupId>cn.com.kingbase</groupId>
+    <artifactId>kingbase8</artifactId>
+    <version>9.0.1</version>
+</dependency>
 ```
 
-On the **Windows** platform, run the following command to start server with standalone mode.  Alternatively, you can also double-click the `startup.cmd` to run NacosServer.
+#### 2. 数据源常量定义
+在 `DataSourceConstant.java` 中添加了新的数据库类型常量：
+
+```java
+public class DataSourceConstant {
+    public static final String MYSQL = "mysql";
+    public static final String DERBY = "derby";
+    public static final String DM = "dm";          // 达梦
+    public static final String KINGBASE = "kingbase"; // 人大金仓
+}
 ```
-startup.cmd -m standalone
+
+#### 3. 外部数据源属性增强
+修改了 `ExternalDataSourceProperties.java`，支持从配置中动态获取 JDBC 驱动类名，而不是硬编码为 MySQL 驱动：
+
+```java
+// 原代码（硬编码 MySQL 驱动）
+poolProperties.setDriverClassName(JDBC_DRIVER_NAME);
+
+// 新代码（从配置获取）
+poolProperties.setDriverClassName(getOrDefault(jdbcDriverName, index, jdbcDriverName.get(index)).trim());
 ```
 
-For more details, see [quick-start.](https://nacos.io/docs/latest/quickstart/quick-start/)
+#### 4. Mapper 实现类创建
+为两种数据库分别创建了完整的 Mapper 实现类：
 
-## Quick start for other open-source projects:
-* [Quick start with Nacos command and console](https://nacos.io/docs/latest/quickstart/quick-start/)
+**达梦数据库 (dm包下)**：
+- `AbstractMapperByDm.java` - 抽象基类
+- `ConfigInfoMapperByDm.java` - 配置信息 Mapper
+- `ConfigInfoBetaMapperByDm.java` - Beta配置 Mapper
+- `ConfigInfoTagMapperByDm.java` - 配置标签 Mapper
+- 等其他 10+ 个 Mapper 实现
 
-* [Quick start with dubbo](https://nacos.io/docs/latest/ecology/use-nacos-with-dubbo/)
+**人大金仓数据库 (kingbase包下)**：
+- `AbstractMapperByKingbase.java` - 抽象基类
+- `ConfigInfoMapperByKingbase.java` - 配置信息 Mapper
+- `ConfigInfoBetaMapperByKingbase.java` - Beta配置 Mapper
+- `ConfigInfoTagMapperByKingbase.java` - 配置标签 Mapper
+- 等其他 10+ 个 Mapper 实现
 
-* [Quick start with spring cloud](https://nacos.io/docs/latest/ecology/use-nacos-with-spring-cloud/)
+#### 5. 可信函数枚举
+为两种数据库分别创建了函数枚举类，用于安全地处理 SQL 函数调用：
 
-* [Quick start with kubernetes](https://nacos.io/docs/latest/quickstart/quick-start-kubernetes/)
+```java
+// TrustedDmFunctionEnum.java - 达梦函数枚举
+public enum TrustedDmFunctionEnum {
+    NOW("NOW()", "NOW()");  // 目前只定义了 NOW() 函数
+    // ... 其他代码
+}
 
+// TrustedKingbaseFunctionEnum.java - 人大金仓函数枚举
+public enum TrustedKingbaseFunctionEnum {
+    NOW("NOW()", "NOW()");  // 目前只定义了 NOW() 函数
+    // ... 其他代码
+}
+```
 
-## Documentation
+## 关键代码段分析
 
-You can view the full documentation from the [Nacos website](https://nacos.io/docs/latest/overview/).
+### 1. 抽象基类实现
+两种数据库的抽象基类结构一致，主要重写了 `getFunction()` 方法：
 
-You can also read this online eBook from the [NACOS ARCHITECTURE & PRINCIPLES](https://nacos.io/docs/ebook/kbyo6n/).
+**AbstractMapperByDm.java:27-33**
+```java
+public abstract class AbstractMapperByDm extends AbstractMapper {
+    @Override
+    public String getFunction(String functionName) {
+        return TrustedDmFunctionEnum.getFunctionByName(functionName);
+    }
+}
+```
 
-All the latest and long-term notice can also be found here from [GitHub notice issue](https://github.com/alibaba/nacos/labels/notice).
+**AbstractMapperByKingbase.java:27-33**
+```java
+public abstract class AbstractMapperByKingbase extends AbstractMapper {
+    @Override
+    public String getFunction(String functionName) {
+        return TrustedKingbaseFunctionEnum.getFunctionByName(functionName);
+    }
+}
+```
 
-## Contributing
+### 2. Mapper 实现示例
+以 `ConfigInfoMapperByDm.java` 为例，展示了达梦数据库的 SQL 实现：
 
-Contributors are welcomed to join Nacos project. Please check [CONTRIBUTING](./CONTRIBUTING.md) about how to contribute to this project.
+**ConfigInfoMapperByDm.java:41-307**
+```java
+public class ConfigInfoMapperByDm extends AbstractMapperByDm implements ConfigInfoMapper {
 
-### How can I contribute?
+    @Override
+    public MapperResult findConfigInfoByAppFetchRows(MapperContext context) {
+        final String appName = (String) context.getWhereParameter(FieldConstant.APP_NAME);
+        final String tenantId = (String) context.getWhereParameter(FieldConstant.TENANT_ID);
+        String sql = "SELECT id,data_id,group_id,tenant_id,app_name,content FROM config_info"
+                + " WHERE tenant_id LIKE ? AND app_name= ?" + " LIMIT " + context.getStartRow() + ","
+                + context.getPageSize();
+        return new MapperResult(sql, CollectionUtils.list(tenantId, appName));
+    }
 
-* Take a look at issues with tags marked [`good first issue`](https://github.com/alibaba/nacos/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22) or [`contribution welcome`](https://github.com/alibaba/nacos/issues?q=is%3Aopen+is%3Aissue+label%3A%22contribution+welcome%22).
-* Answer questions on [issues](https://github.com/alibaba/nacos/issues).
-* Fix bugs reported on [issues](https://github.com/alibaba/nacos/issues), and send us a pull request.
-* Review the existing [pull request](https://github.com/alibaba/nacos/pulls).
-* Improve the [website](https://github.com/nacos-group/nacos-group.github.io), typically we need
-  * blog post
-  * translation on documentation
-  * use cases around the integration of Nacos in enterprise systems.
+    @Override
+    public String getDataSource() {
+        return DataSourceConstant.DM;  // 返回数据源标识
+    }
+}
+```
 
-## Other Related Project Repositories
+### 3. 数据源标识方法
+每个 Mapper 实现类都重写了 `getDataSource()` 方法，返回对应的数据源常量：
 
-* [nacos-spring-project](https://github.com/nacos-group/nacos-spring-project) provides the integration functionality for Spring.
-* [nacos-group](https://github.com/nacos-group) is the repository that hosts the eco tools for Nacos, such as SDK, synchronization tool, etc.
-* [spring-cloud-alibaba](https://github.com/spring-cloud-incubator/spring-cloud-alibaba) provides the one-stop solution for application development over Alibaba middleware which includes Nacos.
+**达梦数据库返回：**
+```java
+@Override
+public String getDataSource() {
+    return DataSourceConstant.DM;
+}
+```
 
-## Contact
+**人大金仓数据库返回：**
+```java
+@Override
+public String getDataSource() {
+    return DataSourceConstant.KINGBASE;
+}
+```
 
-* [Gitter](https://gitter.im/alibaba/nacos): Nacos's IM tool for community messaging, collaboration and discovery.
-* [Twitter](https://twitter.com/nacos2): Follow along for latest nacos news on Twitter.
-* [Weibo](https://weibo.com/u/6574374908): Follow along for latest nacos news on Weibo (Twitter of China version).
-* [Nacos Segmentfault](https://segmentfault.com/t/nacos): Get latest notice and prompt help from Segmentfault.
-* Email Group:
-     * users-nacos@googlegroups.com: Nacos usage general discussion.
-     * dev-nacos@googlegroups.com: Nacos developer discussion (APIs, feature design, etc).
-     * commits-nacos@googlegroups.com: Commits notice, very high frequency.
-* Join us from DingDing(Group 1: 21708933(full), Group 2: 30438813(full), Group 3: 31222241(full), Group 4: 12810027056). 
+## 配置和使用方法
 
-### DingDing Group QR Code
+### 1. 数据库驱动配置
+在 `application.properties` 中配置国产数据库连接：
 
-![](https://cdn.nlark.com/yuque/0/2025/png/1577777/1750054497446-f834cba6-fa83-4421-b202-a0dc1d5cc28b.png)
+```properties
+# 达梦数据库配置示例
+spring.datasource.driver-class-name=dm.jdbc.driver.DmDriver
+spring.datasource.url=jdbc:dm://localhost:5236/nacos
+spring.datasource.username=nacos
+spring.datasource.password=nacos
 
-### DingDing MCP Group QR Code
+# 人大金仓数据库配置示例
+spring.datasource.driver-class-name=com.kingbase8.Driver
+spring.datasource.url=jdbc:kingbase8://localhost:54321/nacos
+spring.datasource.username=nacos
+spring.datasource.password=nacos
+```
 
-![](https://cdn.nlark.com/yuque/0/2025/png/1577777/1750054500395-e271cbe4-2dd8-4723-8cd0-bd8a731b812a.png)
+### 2. 多数据源配置
+通过 `db` 配置节支持多数据源：
 
-### WeChat Group QR Code
+```properties
+db.num=1
+db.url.0=jdbc:dm://localhost:5236/nacos
+db.user.0=nacos
+db.password.0=nacos
+db.jdbcDriverName.0=dm.jdbc.driver.DmDriver
+```
 
-![](https://cdn.nlark.com/yuque/0/2025/png/1577777/1750054421702-a7d1421a-ab8e-42da-bc59-01b5d287b290.png)
+## 适配原理总结
 
-## Enterprise Service
-If you need Nacos enterprise service support, or purchase cloud product services, you can join the discussion by scanning the following DingTalk group. It can also be directly activated and used through the microservice engine (MSE) provided by Alibaba Cloud.
-https://cn.aliyun.com/product/aliware/mse?spm=nacos-website.topbar.0.0.0
+### 1. 插件化架构利用
+Nacos 原有的插件化数据源架构为国产化适配提供了良好基础：
+- 通过 `Mapper` 接口定义统一的数据库操作规范
+- 每种数据库实现自己的 Mapper 类
+- 运行时根据配置动态选择对应的 Mapper 实现
 
-<img src="https://img.alicdn.com/imgextra/i3/O1CN01RTfN7q1KUzX4TcH08_!!6000000001168-2-tps-864-814.png" width="500">
+### 2. SQL 兼容性处理
+适配过程中主要处理了以下 SQL 差异：
+- **分页语法**：使用 `LIMIT offset, size` 语法（与 MySQL 兼容）
+- **函数调用**：通过 `TrustedFunctionEnum` 统一管理数据库函数
+- **数据类型**：保持与原有 MySQL 表结构一致
 
+### 3. 安全考虑
+- 使用 `TrustedFunctionEnum` 枚举可信 SQL 函数，防止 SQL 注入
+- 所有 SQL 语句通过参数化查询构建
+- 继承现有的安全校验机制
 
-## Download
+### 4. 扩展性设计
+- 新增的 `jdbcDriverName` 配置属性支持任意 JDBC 驱动
+- 抽象基类设计便于未来支持更多国产数据库
+- 常量定义集中管理，便于维护
 
-- [Nacos Official Website](https://nacos.io/download/nacos-server)
-- [GitHub Release](https://github.com/alibaba/nacos/releases)
-  
-## Who is using
+## Docker 镜像打包和使用
 
-These are only part of the companies using Nacos, for reference only. If you are using Nacos, please [add your company here](https://github.com/alibaba/nacos/issues/273) to tell us your scenario to make Nacos better.
+### 1. Docker 镜像构建
+基于提交 `a83d19890` 的改动，Nacos 现在支持通过 Docker 镜像方式部署。主要新增文件包括：
 
-<table>
-  <tr>
-    <td><img src="https://data.alibabagroup.com/ecms-files/886024452/296d05a1-c52a-4f5e-abf2-0d49d4c0d6b3.png"  alt="Alibaba Group" width="180" height="120"></td>
-    <td><img src="https://a.msstatic.com/huya/main/img/logo.png"  alt="虎牙直播" width="180" height="120"></td>
-    <td><img src="https://v.icbc.com.cn/userfiles/Resources/ICBC/shouye/images/2017/logo.png"  alt="ICBC" width="180" height="120"></td>
-    <td><img src="https://pic2.iqiyipic.com/lequ/20220422/e7fe69c75e2541f2a931c9e538e2ab9d.jpg"  alt="爱奇艺" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="https://img.alicdn.com/tfs/TB1pwi9EwHqK1RjSZJnXXbNLpXa-479-59.png"  alt="平安科技" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1MZWSEzDpK1RjSZFrXXa78VXa-269-69.png"  alt="华夏信财" width="180" height="120"></td>
-    <td><img src="https://www.urwork.cn/public/images/ui/logo.png"  alt="优客工场" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1ebu.EAvoK1RjSZFwXXciCFXa-224-80.png"  alt="贝壳找房" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="https://img.alicdn.com/tfs/TB1lxu7EBLoK1RjSZFuXXXn0XXa-409-74.png"  alt="瑞安农村商业银行" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1L16eEzTpK1RjSZKPXXa3UpXa-302-50.png"  alt="司法大数据" width="180" height="120"></td>
-    <td><img src="https://www.souyidai.com/www-style/images/logo.gif"  alt="搜易贷" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1OigyDyLaK1RjSZFxXXamPFXa-168-70.png"  alt="平行云" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="https://img.alicdn.com/tfs/TB1gJ4vIhTpK1RjSZR0XXbEwXXa-462-60.jpg"  alt="甘肃紫光" width="180" height="120"></td>
-    <td><img src="http://www.seaskylight.com/cn/uploadfiles/image/logo.png"  alt="海云天" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1DZWSEzDpK1RjSZFrXXa78VXa-240-62.png"  alt="Acmedcare+" width="180" height="120"></td>
-    <td><img src="https://14605854.s21i.faiusr.com/4/ABUIABAEGAAg4OvkzwUo8b-qlwUwxQ449gM!300x300.png"  alt="北京天合互联信息有限公司" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="http://www.mwclg.com/static-resource/front/images/home/img_logo_nav.png"  alt="上海密尔克卫化工" width="180" height="120"></td>
-    <td><img src="https://www.synwe.com/logo-full.png"  alt="大连新唯" width="180" height="120"></td>
-    <td><img src="https://user-images.githubusercontent.com/10215557/51593180-7563af00-1f2c-11e9-95b1-ec2c645d6a0b.png"  alt="立思辰" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1zWW2EpYqK1RjSZLeXXbXppXa-262-81.png"  alt="东家" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="http://www.sh-guiyao.com/images/logo.jpg"  alt="上海克垚" width="180" height="120"></td>
-    <td><img src="http://www.lckjep.com:80//theme/img/logoTop.png"  alt="联采科技" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1G216EsbpK1RjSZFyXXX_qFXa-325-53.jpg"  alt="南京28研究所" width="180" height="120"></td>
-    <td><img src="https://p1.ifengimg.com/auto/image/2017/0922/auto_logo.png"  alt="凤凰网-汽车" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="http://www.sinochemitech.com/zhxx/lib/images/-logo.png"  alt="中化信息" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1DXerNgDqK1RjSZSyXXaxEVXa-333-103.png"  alt="一点车" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1VfOANgHqK1RjSZFPXXcwapXa-313-40.png"  alt="明传无线" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1lvCyNhTpK1RjSZFMXXbG_VXa-130-60.png"  alt="妙优车" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="https://img.alicdn.com/tfs/TB1kY9qNgTqK1RjSZPhXXXfOFXa-120-50.png"  alt="蜂巢" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1G.GBNbrpK1RjSZTEXXcWAVXa-234-65.png"  alt="华存数据" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1qsurNgDqK1RjSZSyXXaxEVXa-300-90.png"  alt="数云" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB13aywNhTpK1RjSZR0XXbEwXXa-98-38.png"  alt="广通软件" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="https://img.alicdn.com/tfs/TB1xqmBNjTpK1RjSZKPXXa3UpXa-162-70.png"  alt="菜菜" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB18DmINcfpK1RjSZFOXXa6nFXa-200-200.png"  alt="科蓝公司" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB15uqANXzqK1RjSZFoXXbfcXXa-188-86.png"  alt="浩鲸" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1mvmyNkvoK1RjSZPfXXXPKFXa-238-46.png"  alt="未名天日语" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="https://img.alicdn.com/tfs/TB1PSWsNmrqK1RjSZK9XXXyypXa-195-130.jpg"  alt="金联创" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1k1qzNbvpK1RjSZFqXXcXUVXa-160-69.png"  alt="同窗链" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1HdyvNmzqK1RjSZFLXXcn2XXa-143-143.jpg"  alt="顺能" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1UdaGNgHqK1RjSZJnXXbNLpXa-277-62.png"  alt="百世快递" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="https://img.alicdn.com/tfs/TB17OqENbrpK1RjSZTEXXcWAVXa-240-113.jpg"  alt="汽车之家" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1q71ANkvoK1RjSZPfXXXPKFXa-257-104.png"  alt="鲸打卡" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1UzuyNhTpK1RjSZR0XXbEwXXa-201-86.jpg"  alt="时代光华" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB19RCANgHqK1RjSZFPXXcwapXa-180-180.jpg"  alt="康美" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="https://img.alicdn.com/tfs/TB1iCGyNb2pK1RjSZFsXXaNlXXa-143-143.jpg"  alt="环球易购" width="180" height="120"></td>
-    <td><img src="https://avatars0.githubusercontent.com/u/16344119?s=200&v=4"  alt="Nepxion" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1aUe5EpzqK1RjSZSgXXcpAVXa-248-124.png"  alt="chigua" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1H9O5EAvoK1RjSZFNXXcxMVXa-221-221.jpg"  alt="宅无限" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="https://img.alicdn.com/tfs/TB1rNq4EwHqK1RjSZFgXXa7JXXa-200-200.jpg"  alt="天阙" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1CRAxDxYaK1RjSZFnXXa80pXa-190-190.jpg"  alt="联合永道" width="180" height="120"></td>
-    <td><img src="https://img.alicdn.com/tfs/TB1.q14ErrpK1RjSZTEXXcWAVXa-219-219.jpg"  alt="明源云" width="180" height="120"></td>
-    <td><img src="https://www.daocloud.io/static/Logo-Light.png"  alt="DaoCloud" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="https://www.meicai.cn/img/logo.9210b6eb.jpg"  alt="美菜" width="180" height="120"></td>
-    <td><img src="https://img5.tianyancha.com/logo/lll/3aad34039972b57e70874df8c919ae8b.png@!f_200x200"  alt="松格科技" width="180" height="120"></td>
-    <td><img src="https://www.jsic-tech.com/Public/uploads/20191206/5de9b9baac696.jpg"  alt="集萃智能" width="180" height="120"></td>
-    <td><img src="https://www.wuuxiang.com/theme/images/common/logo1.png"  alt="吾享" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="http://www.tpson.cn/static/upload/image/20230111/1673427385140440.png"  alt="拓深科技" width="180" height="120"></td>
-    <td><img src="https://www.sunline.cn/u_file/fileUpload/2021-06/25/2021062586431.png"  alt="长亮科技" width="180" height="120"></td>
-    <td><img src="http://pmt2f499f.pic44.websiteonline.cn/upload/wv0c.png"  alt="深圳易停车库" width="180" height="120"></td>
-    <td><img src="http://www.dragonwake.cn/static/css/default/img/logo.png"  alt="武汉日创科技" width="180" height="120"></td>
-  </tr>
-  <tr>
-    <td><img src="https://i4im-web.oss-cn-shanghai.aliyuncs.com/images/logo.png"  alt="易管智能" width="180" height="120"></td>
-    <td><img src="https://www.yunzhangfang.com/assets/img/logo.4096cf52.png"  alt="云帐房" width="180" height="120"></td>
-    <td><img src="https://www.sinocare.com/sannuo/templates/web/img/bocweb-logo.svg"  alt="三诺生物" width="180" height="120"></td>
-    <td></td>
-  </tr>
-  <tr>
-    <td>郑州山水</td>
-    <td>知氏教育</td>
-    <td></td>
-    <td></td>
-  </tr>
-</table>
+- **Dockerfile**: 重新设计的 Docker 镜像构建文件，支持环境变量配置
+- **docker/docker-startup.sh**: Docker 容器启动脚本，支持集群和单机模式
+- **docker/application.properties**: Docker 环境专用的配置文件
+- **distribution/conf/application.properties**: 更新了数据库配置示例，包含达梦和人大金仓配置
+
+### 2. Dockerfile 关键改动
+新的 Dockerfile 主要改动包括：
+
+```dockerfile
+# 设置环境变量
+ENV MODE="cluster" \
+    PREFER_HOST_MODE="ip"\
+    BASE_DIR="/home/nacos" \
+    CLASSPATH=".:/home/nacos/conf:$CLASSPATH" \
+    CLUSTER_CONF="/home/nacos/conf/cluster.conf" \
+    FUNCTION_MODE="all" \
+    JAVA_HOME="/usr/java/openjdk-17" \
+    NACOS_USER="nacos" \
+    JAVA="/usr/java/openjdk-17/bin/java" \
+    JVM_XMS="1g" \
+    JVM_XMX="1g" \
+    JVM_XMN="512m" \
+    JVM_MS="128m" \
+    JVM_MMS="320m" \
+    NACOS_DEBUG="n" \
+    TOMCAT_ACCESSLOG_ENABLED="false" \
+    TIME_ZONE="Asia/Shanghai"
+
+# 下载并安装 Nacos
+RUN set -x \
+    && rm -rf /home/nacos/bin/* /home/nacos/conf/*.properties /home/nacos/conf/*.example /home/nacos/conf/nacos-mysql.sql \
+    && ln -snf /usr/share/zoneinfo/$TIME_ZONE /etc/localtime && echo $TIME_ZONE > /etc/timezone
+
+ADD docker/docker-startup.sh bin/docker-startup.sh
+ADD docker/application.properties conf/application.properties
+
+# 设置启动日志目录
+RUN mkdir -p logs \
+	&& touch logs/start.out \
+	&& ln -sf /dev/stdout logs/start.out \
+	&& ln -sf /dev/stderr logs/start.out \
+    && chmod +x bin/docker-startup.sh
+
+EXPOSE 8848
+EXPOSE 9848 8080
+ENTRYPOINT ["sh","bin/docker-startup.sh"]
+```
+
+### 3. 数据库配置支持
+`distribution/conf/application.properties` 文件已更新，包含国产数据库配置示例：
+
+```properties
+### Connect URL of MySQL:
+#db.url.0=
+#db.user=
+#db.password=
+#db.pool.config.driverClassName=com.mysql.cj.jdbc.Driver
+
+### Connect URL of Dm:
+#db.url.0=
+#db.user=
+#db.password=
+##db.pool.config.driverClassName=dm.jdbc.driver.DmDriver
+
+### Connect URL of Kingbase:
+#db.url.0=
+#db.user=
+#db.password=
+#db.pool.config.driverClassName=com.kingbase8.Driver
+```
+
+### 4. Docker 容器启动命令
+支持单机模式和集群模式部署：
+
+```bash
+# 单机模式启动示例
+docker run --name nacos-standalone-derby \
+    -e MODE=standalone \
+    -e NACOS_AUTH_TOKEN=${your_nacos_auth_secret_token} \
+    -e NACOS_AUTH_IDENTITY_KEY=${your_nacos_server_identity_key} \
+    -e NACOS_AUTH_IDENTITY_VALUE=${your_nacos_server_identity_value} \
+    -p 8080:8080 \
+    -p 8848:8848 \
+    -p 9848:9848 \
+    -d nacos/nacos-server:latest
+
+# 集群模式启动示例（需要配置数据库）
+docker run --name nacos-cluster-mysql \
+    -e MODE=cluster \
+    -e SPRING_DATASOURCE_PLATFORM=mysql \
+    -e MYSQL_SERVICE_HOST=your_mysql_host \
+    -e MYSQL_SERVICE_PORT=3306 \
+    -e MYSQL_SERVICE_DB_NAME=nacos \
+    -e MYSQL_SERVICE_USER=nacos \
+    -e MYSQL_SERVICE_PASSWORD=nacos \
+    -e NACOS_AUTH_TOKEN=${your_nacos_auth_secret_token} \
+    -e NACOS_AUTH_IDENTITY_KEY=${your_nacos_server_identity_key} \
+    -e NACOS_AUTH_IDENTITY_VALUE=${your_nacos_server_identity_value} \
+    -p 8848:8848 \
+    -p 9848:9848 \
+    -p 9555:9555 \
+    -d nacos/nacos-server:latest
+```
+
+### 5. 环境变量配置
+Docker 镜像支持以下关键环境变量：
+
+| 环境变量 | 默认值 | 说明 |
+|---------|--------|------|
+| MODE | cluster | 运行模式：standalone（单机）或 cluster（集群） |
+| NACOS_AUTH_TOKEN | 必填 | Base64 编码的认证密钥 |
+| NACOS_AUTH_IDENTITY_KEY | 必填 | 服务器身份标识键 |
+| NACOS_AUTH_IDENTITY_VALUE | 必填 | 服务器身份标识值 |
+| JVM_XMS | 1g | JVM 初始堆大小 |
+| JVM_XMX | 1g | JVM 最大堆大小 |
+| TIME_ZONE | Asia/Shanghai | 容器时区 |
+
+### 6. 构建自定义镜像
+要构建包含国产数据库驱动的自定义镜像：
+
+```bash
+# 1. 构建 Nacos 项目
+mvn -Prelease-nacos -DskipTests clean install -U
+
+# 2. 构建 Docker 镜像
+docker build -t nacos/nacos-server:custom .
+
+# 3. 运行容器（使用达梦数据库示例）
+docker run --name nacos-dm \
+    -e MODE=standalone \
+    -e SPRING_DATASOURCE_PLATFORM=dm \
+    -e db.num=1 \
+    -e db.url.0=jdbc:dm://localhost:5236/nacos \
+    -e db.user.0=nacos \
+    -e db.password.0=nacos \
+    -e db.pool.config.driverClassName=dm.jdbc.driver.DmDriver \
+    -e NACOS_AUTH_TOKEN=${your_token} \
+    -e NACOS_AUTH_IDENTITY_KEY=${your_key} \
+    -e NACOS_AUTH_IDENTITY_VALUE=${your_value} \
+    -p 8848:8848 \
+    -p 9848:9848 \
+    -p 8080:8080 \
+    -d nacos/nacos-server:custom
+```
+
+### 7. 注意事项
+1. **认证配置**：生产环境必须设置 `NACOS_AUTH_TOKEN`、`NACOS_AUTH_IDENTITY_KEY` 和 `NACOS_AUTH_IDENTITY_VALUE`
+2. **数据库驱动**：使用国产数据库时需要确保相应 JDBC 驱动已包含在构建中
+3. **数据持久化**：建议挂载数据卷持久化配置数据
+4. **网络配置**：集群模式需要正确配置网络和节点发现
+
+## 测试状态
+人大金仓数据库已经通过初步测试，达梦数据库的测试状态未明确说明。
+
+## 后续建议
+1. **函数扩展**：当前只定义了 `NOW()` 函数，根据实际使用情况需要扩展更多数据库函数
+2. **方言支持**：考虑实现更完整的数据源方言支持
+3. **性能优化**：针对国产数据库特性进行 SQL 优化
+4. **文档完善**：补充详细的使用文档和故障排查指南
+
+## 文件位置参考
+- 达梦数据库适配代码：`plugin/datasource/src/main/java/com/alibaba/nacos/plugin/datasource/impl/dm/`
+- 人大金仓数据库适配代码：`plugin/datasource/src/main/java/com/alibaba/nacos/plugin/datasource/impl/kingbase/`
+- 数据源常量定义：`plugin/datasource/src/main/java/com/alibaba/nacos/plugin/datasource/constants/DataSourceConstant.java`
+- 外部数据源属性：`persistence/src/main/java/com/alibaba/nacos/persistence/datasource/ExternalDataSourceProperties.java`
